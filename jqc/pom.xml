@@ -20,7 +20,7 @@
 	</properties>
 
 	<dependencies>
-		<!-- Janovar framework -->
+		<!-- Jannovar framework -->
 		<dependency>
 			<groupId>de.charite.compbio</groupId>
 			<artifactId>jannovar-core</artifactId>
