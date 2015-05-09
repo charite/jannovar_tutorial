@@ -1,10 +1,13 @@
 package jqc;
 
+import htsjdk.variant.variantcontext.VariantContext;
+import htsjdk.variant.vcf.VCFFileReader;
+
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 
 import org.apache.commons.cli.CommandLine;
@@ -15,10 +18,20 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.Parser;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
+
 import de.charite.compbio.jannovar.JannovarException;
+import de.charite.compbio.jannovar.annotation.Annotation;
+import de.charite.compbio.jannovar.annotation.VariantAnnotations;
+import de.charite.compbio.jannovar.annotation.VariantEffect;
 import de.charite.compbio.jannovar.data.Chromosome;
-import de.charite.compbio.jannovar.reference.TranscriptModel;
+import de.charite.compbio.jannovar.data.JannovarData;
+import de.charite.compbio.jannovar.data.JannovarDataSerializer;
+import de.charite.compbio.jannovar.data.ReferenceDictionary;
+import de.charite.compbio.jannovar.htsjdk.InvalidCoordinatesException;
 /** Command line parser from apache */
+import de.charite.compbio.jannovar.htsjdk.VariantContextAnnotator;
 
 /**
  * Example Jannovar program designed to demonstrate how to extract some Q/C statistics for an exome or other VCF file.
@@ -28,9 +41,11 @@ import de.charite.compbio.jannovar.reference.TranscriptModel;
  */
 public class JQCVCF {
 	/** Map of Chromosomes */
-	private HashMap<Byte, Chromosome> chromosomeMap = null;
+	private ImmutableMap<Integer, Chromosome> chromosomeMap = null;
 	/** List of variants from input file to be analysed. */
-	private ArrayList<Variant> variantList = null;
+	private ImmutableMap<Integer, Chromosome> variantList = null;
+	/** Information about genome (chromosome lengths and names). */
+	private ReferenceDictionary refDict = null;
 	/** The names of the samples in the VCF file (they are parsed automatically from the file). */
 	ArrayList<String> sampleNames = null;
 	/** Name of the outfile (default: jqc.txt). */
@@ -76,7 +91,7 @@ public class JQCVCF {
 	 * Upper maximum limit for the Phred score of 10,000. Occasioanlly, a value of such as 6442456297.26 gets reported,
 	 * and we want to cap that.
 	 */
-	private float THRESHOLD_PHRED = 10000f;
+	private double THRESHOLD_PHRED = 10000f;
 
 	public static void main(String argv[]) {
 		JQCVCF jqc = new JQCVCF(argv);
@@ -90,6 +105,8 @@ public class JQCVCF {
 		} catch (JannovarException e) {
 			e.printStackTrace();
 		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (InvalidCoordinatesException e) {
 			e.printStackTrace();
 		}
 	}
@@ -109,12 +126,16 @@ public class JQCVCF {
 	/**
 	 * This function inputs a VCF file, and prints the annotated version thereof to a file (name of the original file
 	 * with the suffix .jannovar).
+	 *
+	 * @throws InvalidCoordinatesException
+	 *             in the case of problems in the variant annotation
 	 */
-	public void inputVCF() throws JannovarException {
-		VCFReader parser = new VCFReader(this.pathToVCFfile);
-		parser.inputVCFheader();
-		this.n_samples = parser.getNumberOfSamples();
-		this.sampleNames = parser.getSampleNames();
+	public void inputVCF() throws JannovarException, InvalidCoordinatesException {
+		// open file using HTSJDK's VCFFileReader and get info from headers
+		VCFFileReader parser = new VCFFileReader(new File(this.pathToVCFfile), /* requireIndex= */false);
+		this.n_samples = parser.getFileHeader().getNGenotypeSamples();
+		this.sampleNames = parser.getFileHeader().getSampleNamesInOrder();
+
 		/**
 		 * Initiliaze the SampleReport objects, one for each sample in the VCF file.
 		 */
@@ -124,23 +145,23 @@ public class JQCVCF {
 			index++;
 			this.samples.add(report);
 		}
-		this.vcfFileName = parser.getVCFFileName();
-		/* Iterate over all variants in the VCF file. */
-		Iterator<Variant> it = parser.getVariantIterator();
+		this.vcfFileName = this.pathToVCFfile;
+		/* Iterate over all variants in the VCF file and build annotations */
+		VariantContextAnnotator annotator = new VariantContextAnnotator(refDict, chromosomeMap);
+		for (VariantContext vc : parser) {
+			this.n_totalVariants += 1;
 
-		while (it.hasNext()) {
-			Variant v = it.next();
-			byte chr = v.getChromosomeAsByte();
-			Chromosome c = this.chromosomeMap.get(chr);
-			v.annotate(c);
-			this.n_totalVariants++;
-			boolean ontarget = doQualityControl(v);
-			if (ontarget) {
-				float phred = v.getVariantPhredScore();
-				phred = Math.min(phred, THRESHOLD_PHRED);
-				this.phredStat.addValue(phred);
+			// TODO(holtgrew): Nick, here the behaviour changed from considering the first to all alleles.
+			for (VariantAnnotations annos : annotator.buildAnnotations(vc)) { // consider each alternative allele
+				boolean onTarget = doQualityControl(vc, annos); // QC of annotations for one allele/variant
+				if (onTarget) {
+					double phred = vc.getPhredScaledQual();
+					phred = Math.min(phred, THRESHOLD_PHRED);
+					this.phredStat.addValue(phred);
+				}
 			}
 		}
+
 		// Now add the phred results to each of the reports
 		this.phredStat.evaluate();
 		for (SampleReport r : this.samples) {
@@ -148,12 +169,24 @@ public class JQCVCF {
 		}
 	}
 
-	private boolean isOffTarget(Variant v) {
-		VariantType vt = v.getVariantTypeConstant();
-		String ann = v.getAnnotation();
-		if (vt == VariantType.INTERGENIC)
+	/**
+	 * Perform QC of one annotated variant.
+	 *
+	 * There might be more than one annotation (one for each affected transcript), thus the parameter is a
+	 * {@link VariantAnnotations}.
+	 */
+	private boolean isOffTarget(VariantAnnotations va) {
+		Annotation anno = va.getHighestImpactAnnotation();
+		if (anno == null)
+			return false; // no annotation for variant
+
+		ImmutableSortedSet<VariantEffect> effects = anno.getEffects();
+		String ann = anno.getAminoAcidHGVSDescription();
+		if (effects.contains(VariantEffect.INTERGENIC_VARIANT)) {
 			return true;
-		if (vt == VariantType.UPSTREAM || vt == VariantType.DOWNSTREAM) {
+		} else if (effects.contains(VariantEffect.UPSTREAM_GENE_VARIANT)
+				|| effects.contains(VariantEffect.DOWNSTREAM_GENE_VARIANT)) {
+			// TODO(holtgrew): The annotation output format is different now, so this needs to be adjusted.
 			// e.g., KRTAP19-2(dist=10)
 			int i = ann.indexOf("=");
 			int j = ann.indexOf(")");
@@ -167,8 +200,8 @@ public class JQCVCF {
 				return true;
 			else
 				return false;
-		}
-		if (vt == VariantType.INTRONIC || vt == VariantType.ncRNA_INTRONIC) {
+		} else if (effects.contains(VariantEffect.CODING_TRANSCRIPT_INTRON_VARIANT)
+				|| effects.contains(VariantEffect.NON_CODING_TRANSCRIPT_INTRON_VARIANT)) {
 			// e.g. TMBIM6(uc001rux.2:dist to exon4=2439;dist to exon5=33)
 			int i = ann.indexOf("=");
 			int j = ann.indexOf(";");
@@ -203,17 +236,19 @@ public class JQCVCF {
 	 * This function adds the Variant and its quality parameters to each of the SampleReports (one for each sample in
 	 * the VCF file).
 	 *
-	 * @param v
-	 *            The current Variant.
+	 * @param vc
+	 *            VariantContext with the current annotation
+	 * @param va
+	 *            the annotations for <code>vc</code>
 	 */
-	private boolean doQualityControl(Variant v) {
-		if (this.doTargetFilter && isOffTarget(v)) {
+	private boolean doQualityControl(VariantContext vc, VariantAnnotations va) {
+		if (this.doTargetFilter && isOffTarget(va)) {
 			this.n_offTarget++;
 			return false;
 		}
 		for (int i = 0; i < this.samples.size(); ++i) {
 			SampleReport rep = this.samples.get(i);
-			rep.addVariant(v);
+			rep.addVariant(vc, va);
 		}
 		return true;
 	}
@@ -261,9 +296,9 @@ public class JQCVCF {
 	 * function deserializes this file.
 	 */
 	public void deserializeUCSCdata() throws JannovarException {
-		SerializationManager manager = new SerializationManager();
-		ArrayList<TranscriptModel> kgList = manager.deserializeKnownGeneList(this.pathToSerializedJannovarFile);
-		this.chromosomeMap = Chromosome.constructChromosomeMapWithIntervalTree(kgList);
+		JannovarData data = new JannovarDataSerializer(this.pathToSerializedJannovarFile).load();
+		this.chromosomeMap = data.getChromosomes();
+		this.refDict = data.getRefDict();
 	}
 
 	/**
