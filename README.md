@@ -18,6 +18,12 @@ As a preparation, download the jannovar-cli application for downloading database
     $ java -jar jannovar-cli-0.14/jannovar-cli-0.14.jar download hg19/refseq
     ...
 
+Note that depending on your system settings, you may need to reserve additional memory for the Java virtual machine for the last command. The 
+following command will reserve 2 Gb.
+
+
+    $ java -Xms2g -jar jannovar-cli-0.14/jannovar-cli-0.14.jar download hg19/refseq
+
 ## Build Example App
 
     $ mvn package
@@ -55,6 +61,9 @@ at the main function to understand how the code works.
 * processVariants(): extract one representative annotation for each variant (many of which have multiple annotations), and add it to a simple Gene object (the Gene will be the point of reference for deciding whether there is compatibility with the mode of inheritance; for instance, with autosomal recessive inheritance, if a gene has compound heterozygous variants in each affect individual, one of which is found in each parent, and no more than one of which is found in unaffected siblings, this would be compatible).
 * parsePedFile(): obvious
 * filterByInheritance(): Apply the rules encoded in the Jannovar library to decide if Genes/variants are compatible with the pedigree and the indicated mode of inheritance
+
+
+To run the program, you can use the files provided in the tutorial_data directory (sample.vcf and one of the three ped files, fam1.ped, fam2.ped, or fam3.ped).
 
 
 ## Have Fun!
