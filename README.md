@@ -33,19 +33,19 @@ and the transcript information file (Jannovar format), and filters all variants 
 compatible with the mode of inheritance and the VCF file and the Ped file. After you have cloned this
 repository (jannovar_tutorial), cd to the jped directory and enter
 
-   $ mvn package
-   $ java -jar target/jped-0.1-SNAPSHOT.jar 
+    $ mvn package
+    $ java -jar target/jped-0.1-SNAPSHOT.jar 
 
 This will show a usage message:
 
-  Usage: java -jar JPed.jar -D ucsc_hg19.ser -V sample.vcf -P sample.ped  -I AR [-O fname]
-  [INFO] where
-  [INFO]
-  [INFO] -D: the serialized transcript data file from Jannovar (e.g., ucsc_hg19.ser)
-  [INFO] -V: the VCF file representing samples from a family
-  [INFO] -P: the corresponding PED file
-  [INFO] -I: the mode of inheritance to filter for (AD, AR, X, AR-HOM, AR-COMPHET)
-  [INFO] -O: Name of output file (optional)
+    Usage: java -jar JPed.jar -D ucsc_hg19.ser -V sample.vcf -P sample.ped  -I AR [-O fname]
+    [INFO] where
+    [INFO]
+    [INFO] -D: the serialized transcript data file from Jannovar (e.g., ucsc_hg19.ser)
+    [INFO] -V: the VCF file representing samples from a family
+    [INFO] -P: the corresponding PED file
+    [INFO] -I: the mode of inheritance to filter for (AD, AR, X, AR-HOM, AR-COMPHET)
+    [INFO] -O: Name of output file (optional)
 
 Consult the Jannovar manual for more information about the PED file format. Have a look
 at the main function to understand how the code works.
