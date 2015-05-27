@@ -88,16 +88,40 @@ public class SampleReport {
      */
     public void addVariant(VariantContext vc, VariantAnnotations va) {
 	Genotype gt = vc.getGenotype(this.idx);
+	
+	if (gt.isNoCall()) { // ./. => skip statistics and count missing value.
+	    this.n_missing++;
+	    return;
+	} else if (gt.isHomRef()) // 0/0 => skip statistics. Ref genotype. Computation Ti/TV etc. is not needed. 
+		return;
+	
+	
+	// 1/1, 2/2, 0/1 and 1/2 we have to check if it is the same VarantAnnotation. 
+	// But 1/2 we have to count twice. So the easiest way will be to check if one alternative allele of gt is va.getAlt;
+	boolean foundAltAllele = false;
+	for (Allele allele : gt.getAlleles()) {
+		if (allele.isReference())
+			continue;
+		if (allele.getBaseString().equals(va.getAlt())) {
+			foundAltAllele = true;
+			break;
+		}
+	}
+	//skip
+	if (!foundAltAllele)
+		return;
+	
 	Annotation anno = va.getHighestImpactAnnotation(); // only highest-impact one
 	if (anno == null) {
 	    System.err.println("[WARNING] No annotation found for variant " + vc);
 	    return; // no annotation
 	}
 	
-	if (gt.isNoCall()) {
-	    this.n_missing++;
-	    return;
-	}
+	if (gt.isHomVar()) 
+	    this.n_homozygous++;
+	else if (gt.isHet()) // 0/1, 1/2,...
+	    this.n_heterozygous++;
+	
 	// To get the allelic depth
 	// gt.getAF  getAD
 	//public abstract int[] getAD()
@@ -113,10 +137,7 @@ public class SampleReport {
 	    }
 	}
 	
-	if (gt.isHomVar())
-	    this.n_homozygous++;
-	else if (gt.isHet())
-	    this.n_heterozygous++;
+
 	
 
 	String ref=va.getRef();
