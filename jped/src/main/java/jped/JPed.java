@@ -183,13 +183,12 @@ public class JPed {
 	public void processVariants() throws JannovarException, InvalidCoordinatesException {
 		int c = 0;
 		for (VariantContext vc : this.variantList) {
-			// TODO(holtgrewe): Nick, here we now have all alternative alleles and not only the first one, does this require a change?
 			for (VariantAnnotations annos : annotator.buildAnnotations(vc)) {
 				Annotation anno = annos.getHighestImpactAnnotation();
 				if (anno == null)
 					continue; // skip empty annotation
 				if (anno.getEffects().first().isOffExome())
-					continue; // skip introninc and intergenic
+					continue; // skip intronic and intergenic
 				String sym = anno.getGeneSymbol();
 				Gene g = null;
 				if (this.geneMap.containsKey(sym)) {
@@ -218,7 +217,7 @@ public class JPed {
 		PedFileContents contents = new PedFileReader(new File(this.pathToPedFile)).read();
 		String pedName = contents.getIndividuals().get(0).getPedigree();
 		ImmutableList<Person> members = new PedigreeExtractor(pedName, contents).run();
-		this.pedigree = new Pedigree(pedName, members).subsetOfMembers(this.sampleNames);
+		this.pedigree = new Pedigree(pedName, members);//.subsetOfMembers(this.sampleNames);
 	}
 
 	public void filterByInheritance() throws CompatibilityCheckerException {
@@ -249,12 +248,6 @@ public class JPed {
 
 			for (Gene g : this.geneMap.values()) {
 				GenotypeList lst = constructGenotypeList(g.vars, g.symbol);
-
-				// TODO(holtgrewe): Nick, Jannovar can now also do X-dominant, also there is the ModeOfInheritance enum.
-				//                  I think this could use some massaging. CompatibilityCheckerAutosomalRecessiveHomozygous
-				//                  is package level visibility in 0.14 but will be public in 0.15. having it after the other
-				//                  case gives you the equivalent functionality, though.
-
 				if (this.mode == inheritanceMode.AR && new CompatibilityCheckerAutosomalRecessive(pedigree, lst).run()) {
 					out.write(g.getAnnotations());
 				} else if (this.mode == inheritanceMode.COMPHET
@@ -286,7 +279,6 @@ public class JPed {
 			ImmutableList.Builder<Genotype> gts = new ImmutableList.Builder<Genotype>();
 			for (String sample : vars.get(0).getSampleNamesOrderedByName()) {
 				htsjdk.variant.variantcontext.Genotype genotype = vc.getGenotype(sample);
-				// TODO(holtgrewe): Nick, I think that no-call could be called differently here.
 				if (genotype.getAllele(0).equals(vc.getReference()) && genotype.getAllele(1).equals(vc.getReference()))
 					gts.add(Genotype.HOMOZYGOUS_REF);
 				else if (!genotype.getAllele(0).equals(vc.getReference())
@@ -302,7 +294,7 @@ public class JPed {
 	}
 
 	/**
-	 * Parse the command line using apache's CLI. A copy of the library is included in the Jannovar tutorial archive in
+	 * Parse the command line using Apache's CLI. A copy of the library is included in the Jannovar tutorial archive in
 	 * the lib directory.
 	 *
 	 * @see "http://commons.apache.org/proper/commons-cli/index.html"
@@ -379,8 +371,7 @@ public class JPed {
 	 * Prints a usage message to teh console.
 	 */
 	public static void usage() {
-		System.err
-				.println("[INFO] Usage: java -jar JPed.jar -D ucsc_hg19.ser -V sample.vcf -P sample.ped  -I AR [-O fname]");
+		System.err.println("[INFO] Usage: java -jar JPed.jar -D ucsc_hg19.ser -V sample.vcf -P sample.ped  -I AR [-O fname]");
 		System.err.println("[INFO] where");
 		System.err.println("[INFO]");
 		System.err.println("[INFO] -D: the serialized transcript data file from Jannovar (e.g., ucsc_hg19.ser)");
